@@ -1,0 +1,10 @@
+/home/amik/E-Drive/McGill/TA/COMP-535/Winter-2026/LSR_Project_Sketch_Code/comp535_sketch_code/src/main/java/socs/network/message/LSA.java
+/home/amik/E-Drive/McGill/TA/COMP-535/Winter-2026/LSR_Project_Sketch_Code/comp535_sketch_code/src/main/java/socs/network/node/Router.java
+/home/amik/E-Drive/McGill/TA/COMP-535/Winter-2026/LSR_Project_Sketch_Code/comp535_sketch_code/src/main/java/socs/network/node/RouterDescription.java
+/home/amik/E-Drive/McGill/TA/COMP-535/Winter-2026/LSR_Project_Sketch_Code/comp535_sketch_code/src/main/java/socs/network/node/LinkStateDatabase.java
+/home/amik/E-Drive/McGill/TA/COMP-535/Winter-2026/LSR_Project_Sketch_Code/comp535_sketch_code/src/main/java/socs/network/util/Configuration.java
+/home/amik/E-Drive/McGill/TA/COMP-535/Winter-2026/LSR_Project_Sketch_Code/comp535_sketch_code/src/main/java/socs/network/Main.java
+/home/amik/E-Drive/McGill/TA/COMP-535/Winter-2026/LSR_Project_Sketch_Code/comp535_sketch_code/src/main/java/socs/network/message/SOSPFPacket.java
+/home/amik/E-Drive/McGill/TA/COMP-535/Winter-2026/LSR_Project_Sketch_Code/comp535_sketch_code/src/main/java/socs/network/node/Link.java
+/home/amik/E-Drive/McGill/TA/COMP-535/Winter-2026/LSR_Project_Sketch_Code/comp535_sketch_code/src/main/java/socs/network/node/RouterStatus.java
+/home/amik/E-Drive/McGill/TA/COMP-535/Winter-2026/LSR_Project_Sketch_Code/comp535_sketch_code/src/main/java/socs/network/message/LinkDescription.java
