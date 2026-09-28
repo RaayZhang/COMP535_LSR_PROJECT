@@ -1,161 +1,110 @@
+PA1 IMPLEMENTATION NOTES
 
-Running Instruction:
+Build and run
+From the comp535_sketch_code directory, run:
 
-Step1: On Windows PowerShell, from the `comp535_sketch_code` directory:
+    mvn clean package assembly:single
+    java -jar target/COMP535-1.0-SNAPSHOT-jar-with-dependencies.jar conf/router1.conf
 
-$cfg  = "$env:USERPROFILE\.m2\repository\com\typesafe\config\1.3.1\config-1.3.1.jar"
-$srcs = Get-ChildItem -Recurse src\main\java -Filter *.java | ForEach-Object { $_.FullName }
-javac -encoding UTF-8 -d out -cp $cfg $srcs
+Open one terminal per router, using a different router1-7.conf file in each.
+The startup output shows its Process IP, Process Port, and Simulated IP. Use the
+remote router's printed values in this command:
 
-Step2: Each router is a separate process, so open one terminal per router. Every terminal must
-use a different configuration file (router1-7.conf):
+    attach [Process IP] [Process Port] [Simulated IP] [Link Weight]
 
-java -cp "out;$env:USERPROFILE\.m2\repository\com\typesafe\config\1.3.1\config-1.3.1.jar" socs.network.Main conf\router1.conf  
+The receiver answers Y or N. Acceptance records a Link at both ends, but does
+not make either end TWO_WAY. Run start on an attached router to exchange three
+HELLO messages. The receiver moves through INIT to TWO_WAY; the starter moves
+to TWO_WAY after receiving the second HELLO. neighbors prints only the
+simulated IPs of links currently in TWO_WAY state, one per line.
 
-Step3: Commands
+How the program is organized
 
-## Attach
-`attach [Process IP] [Process Port] [Simulated IP] [Weight]`
-eg:  >> attach 192.168.0.50 23023 192.168.1.1 2
-Requests a link to another router, using the values that the other router printed on startup.
+* The terminal thread is the only reader of System.in. It processes most commands
+  and treats the next input line as Y/N when an incoming attach needs approval.
+* The listener thread waits on ServerSocket.accept() and gives every incoming
+  socket to its own connectionHandler() thread. A slow request does not block
+  the listener from accepting another connection.
+* A connection-handler thread reads a SOSPFPacket, dispatches by sospfType,
+  handles one attach or HELLO exchange, and closes that socket afterward.
+* Each outgoing attach has its own thread because it may wait for the other
+  router's Y/N response. The terminal remains available to answer the other
+  router if both routers send attach requests around the same time.
 
-## Start
-Performs the HELLO handshake with every attached router and moves each neighbor to the`TWO_WAY` state.
+Important methods and fields
 
-## Neighbors
-Prints the simulated IP of every neighbor in the `TWO_WAY` state, one per line
+* Router() reads the configured Simulated IP, opens the listening socket,
+  prints the three router identifiers, and starts the listener thread.
+* bindFreePort() tries up to 200 random ports from 10000 through 32766.
+  The starter code's process-port field is a Java short, so an unrestricted
+  ServerSocket(0) could choose a port this version cannot store in that field.
+* findLink() looks for an existing Link by remote Simulated IP. portLock protects
+  accesses to ports and reservedPorts; snapshotLinks() makes a copy for start
+  without holding that lock during network I/O.
+* reservePort() marks one empty slot as pending. releasePort() clears the mark
+  after a rejection or failure. commitPort() puts an accepted Link into that
+  slot and clears the mark; if a Link to the same router already exists, it
+  returns false and the caller releases the unused reservation.
+* removeLink() removes exactly the matching Link object. advanceNeighborStatus()
+  moves a neighbor forward toward INIT or TWO_WAY without moving it backward.
+* newPacket() fills the sender and destination fields of a SOSPFPacket.
+  openOutput() flushes the ObjectOutputStream header before either side opens
+  ObjectInputStream; otherwise both sides could wait for a stream header.
+  readPacket() rejects an object that is not a SOSPFPacket.
+* requestHandler() accepts sockets; connectionHandler() routes packet type 3
+  to handleAttachRequest() and type 0 to handleHello(). Each later exchange
+  opens a new socket using the Process IP and Process Port stored in the Link.
+* processAttach() validates the destination, reserves a slot, sends an attach
+  packet containing the link weight, waits for a reply, and commits or releases
+  the slot. handleAttachRequest() checks the destination and free slots,
+  asks the user when needed, and sends an accept/reject packet.
+* askUserYesNo() publishes pendingAttachDecision, a CompletableFuture<Boolean>
+  used like a mailbox between the handler and terminal threads. A response
+  other than Y or N leaves the question pending so the user can try again.
+  attachApprovalLock allows only one incoming approval question at a time.
+* processStart() takes a snapshot of attached links. helloHandshake() sends
+  HELLO, reads the reply, and sends the final HELLO. handleHello() processes
+  those messages on the receiver and advances the neighbor state.
+* processNeighbors() prints only TWO_WAY neighbors. processQuit() closes the
+  listening socket and exits. terminal() reads commands; runCommand() parses
+  them and starts the appropriate method.
 
-=============================================================================================================
+Edge cases handled by this code
 
-### 4 Threading type:
-----------------------------------------------------------------------------------------------
-   1:Terminal thread : the only thread that read System.in. 
-        It runs most commands directly. When another router is waiting
-        for our Y/N answer to an attach request, the next line typed is treated as that answer.
-------------------------------------------------------------------------------------------
-   2:Listener thread : loops on serverSocket and transfer every accepted socket to a new
-      connection handler thread, so the listener itself is never blocked.
------------------------------------------------------------------------------------------
-   3:Connection handler threads : connectionHandler(Socket) for each 
-       incoming TCP connection. They read the first packet and dispatch them base on its type
-      (eg: attach equest or HELLO msg), then close the socket when this process end.
---------------------------------------------------------------------------------------------
-    4:Attach threads :  the attach command runs in its own thread because it blocks until the 
-        remote user give Y or N as reply. If it ran on the terminal thread, 
-        two routers attaching each other at the same time could never
-        answer each other's question (both terminals would be blocked).
+* Each router has four Link slots. A fifth incoming or outgoing attach cannot
+  reserve a slot and is rejected. A rejected or failed attach frees its slot.
+* A pending attach is only marked in reservedPorts; it is not temporarily put
+  into ports. Therefore start and neighbors cannot mistake a pending request
+  for an established link.
+* outgoingAttachRouters tracks pending outgoing Simulated IPs and stops a
+  duplicate outgoing attach to the same router while the first is waiting.
+  findLink() also stops a new attach when that link already exists.
+* Two routers can send attach requests to each other around the same time.
+  Their terminal threads can still answer Y/N. commitPort() keeps at most one
+  local Link to the same Simulated IP and releases a losing reservation. If
+  one direction is rejected but the other accepted, the accepted direction
+  can still establish a link; if both are rejected, neither establishes one.
+  Depending on timing, a request to a router that already has the Link may
+  be accepted automatically rather than asking the user again.
+* An attach addressed to the wrong Simulated IP is rejected automatically.
+  An empty command is ignored, malformed numeric arguments print an error,
+  and an unknown command prints a message without ending the terminal loop.
+* start with no attached links prints a message. If an outgoing attach is
+  still pending, start notes that it may need to be run again after approval.
+  A missing or invalid second HELLO prevents the starter from reaching TWO_WAY.
+  After the starter reaches TWO_WAY, a failure to deliver the final HELLO is not
+  rolled back, so the two ends may temporarily disagree about the state.
+* There is no background failure detector in PA1. A neighbor that quits may
+  remain listed until this router runs start again. If that connection attempt
+  gets Connection refused, helloHandshake() removes the Link; the next
+  neighbors command no longer lists it. Other I/O failures do not necessarily
+  remove the Link.
 
+Scope and AI disclosure
 
-
-=========================================================================================================
-
-
-
-### Why We Reserve Ports
-
-When router A sends an attach request to router B, A must wait for B's response before
- the link can be established. During this wait, another attach request—for example, 
- from A to C or from C to A may try to use the same free port. If that port is not reserved,
-  both requests could select it, and the first request would have nowhere to store its link when B accepts.
-To prevent this race condition, we reserve a free port as soon as we send an attach request. 
-Other requests cannot use that port while the response is pending. If the request is rejected or fails,
- we release the reservation. If the connection accepted we just keep the position to be reserved.
-
- ============================================================================================================================
-
-### Why We Not Store The Link In "Link[] port" Temporaily As An Reservation
-
-Problem 1: There are other commands that could read the ports. For example the start, when we call this command, it
- would read though all avaliable connection in "Link[] port" (if A attach B haven't receive response but the
-  connection reserved inside "Link[] port" temporaily) and it will start 3-way handshake with all connection, but 
-  later it would find the connection between A and B haven't been established yet. 
-
-Problem 2: When A attach B and B attach A happen almost at the same time, it could have the problem of 
-inconsistent (eg: When B attach A, before A make the decision it notice that the connection already existed inside ports)
-
-================================================================================================================================
-
-### How To Handle the Situation that A attach B and B attach A happen at almost the same time
-
-When this 2 direction attach happen there 3 possible cases: (1: A->Yes, B->Yes => both routers will have a link and the
- last one will be removed, At the beginning both link {l1: created by A->B}, {l2: created by B->A} are inside the reserve port.
- Later they would both use the commitPort() to add the link into the "Link[] port", as the commitPort would be call 2 times, the first
- time can't find the existed link so it could store the link. While the second one will find the link already existed so it do nothing just 
- return false.), (2: A->Yes, B->No => the connection will still be established), (3: A->No, B->No => just no link)
-
-==============================================================================================================================
-
-### How to handle the situation when one router quit and the connection still existed in others link list:
-
-When we call the "start" command it would handle with this exception and print Connection refused. Later it could be removed from the link list.
-Next time when we use the "neighbors" command you won't see that connection.
-
-===============================================================================================================================
-### Purpose of "Set<String> outgoingAttachRouters"
-
-The outgoingAttachRouters is a synchronized HashSet, it allow us to track those pending attach. And not allow
-the duplicate command (eg: A attach B) when the A attach B command is still in pending. 
-
-===============================================================================================================================
-
-### Purpose of "Object attachApprovalLock"
-
- This lock held by the connection handler thread that is currently asking the user a Y/N question, thus only one
- thread can ask for the Y/N at the same time. Other incoming attach requests wait for the lock, so questions never conflict.
- Once the thread receive reponse from the user, add the link and reply to the other node it will release the lock.
-
-=================================================================================================================================
-
-### Purpose of "CompletableFuture<Boolean> pendingAttachDecision"
-
-Play the role like a letterbox, when the handler thread call askUserYesNo(), it will show the question and assign the pendingAttachDecision
-with an new CompletableFuture<>() object. Once user give the reply the console thread would check if this letterbox is empty/null. If it's not null then it would 
-check the reply message is yes or no, and then reassign the pendingAttachDecision = null. If the reply is illegal, it just keep it at the same status
-and wait for the next loop to wait for Y/N.
-
-=================================================================================================================================
-
-
-
-### Connection Protocol
-
-Each connection carry exactly one exchange utile it closed ; after attach we only remember the peer's
-process IP and port in the Link, so any later exchange (eg: start) simply use these info to create
- an new Socket for connection.
- 
-
-
- AI advice: 
-
- 1: Why we flush first -> peer's ObjectInputStream could immediately receive msg
-   /**
-   * Opens the object output stream and pushes its header to the peer right away.
-   * IMPORTANT : An ObjectInputStream constructor blocks until it has
-   * read the header written by the peer's ObjectOutputStream; if both sides opened their
-   * input stream first they would wait for each other forever.
-   */
-  private static ObjectOutputStream openOutput(Socket socket) throws IOException {
-    ObjectOutputStream out = new ObjectOutputStream(socket.getOutputStream());
-    out.flush();
-    return out;
-  }
-
-
-  2: Why Not Socket(0) directly
-  private static ServerSocket bindFreePort() throws IOException {
-    Random random = new Random();
-    for (int attempt = 0; attempt < 200; attempt++) {
-      int port = 10000 + random.nextInt(Short.MAX_VALUE - 10000); // 10000 .. 32766
-      try {
-        return new ServerSocket(port);
-      } catch (IOException portInUse) {
-        // try another one
-      }
-    }
-    throw new IOException("no free port found in range 10000-32766");
-
-  }
-
-  3: AI help us to write the readme document.
-
-  4: Ask AI to check if there any edge case we didn't think about
+PA1 covers attach, the HELLO part of start, and neighbors. Link-state database
+synchronization and the other routing commands are for later assignments and
+are not implemented here. The earlier README said AI was consulted about
+object-stream flushing, process-port selection, concurrent attach edge cases,
+and README wording. The team should verify its actual use and describe it in
+the separate AI-usage report required by the instructor.
