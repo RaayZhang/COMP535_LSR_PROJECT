@@ -171,7 +171,21 @@ PA1 implements attach, the HELLO part of start, and neighbors. Link-state
 database synchronization and the other routing commands belong to later
 assignments and are not implemented here.
 
-The earlier README recorded AI help with object-stream flushing, choosing
-a Process Port compatible with short, checking concurrent attach edge
-cases, and writing this README. The team should verify its actual use
-and describe it in the instructor's separate AI-usage report.
+AI assistance used in this work:
+
+1) We consulted generative AI to understand why openOutput() flushes the
+   ObjectOutputStream header before creating ObjectInputStream. We checked
+   that explanation against the Java code and its socket setup order.
+
+2) We consulted generative AI about process-port selection. Because the
+   starter code stores the port in a Java short, we checked that
+   bindFreePort() chooses a port in the supported 10000-32766 range.
+
+3) We used generative AI to help draft and organize this README. We edited
+   the final wording and checked the build commands, method descriptions,
+   and PA1 scope against the submitted code.
+
+4) We used generative AI as a review aid to identify possible edge cases,
+   including simultaneous or duplicate attach requests, invalid Y/N input,
+   and exhausted link slots. We inspected the relevant code paths and
+   tested these cases; AI suggestions were not treated as proof of correctness.
